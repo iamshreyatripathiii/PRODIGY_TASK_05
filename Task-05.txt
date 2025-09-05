@@ -1,0 +1,76 @@
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D, Dropout
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Dataset paths (update after downloading Food-101)
+train_dir = "food-101/train"
+test_dir = "food-101/test"
+
+img_size = 224
+batch_size = 32
+
+# Step 1: Data preprocessing
+datagen = ImageDataGenerator(rescale=1./255, validation_split=0.2)
+
+train_data = datagen.flow_from_directory(
+    train_dir,
+    target_size=(img_size, img_size),
+    batch_size=batch_size,
+    subset="training",
+    class_mode="categorical"
+)
+
+val_data = datagen.flow_from_directory(
+    train_dir,
+    target_size=(img_size, img_size),
+    batch_size=batch_size,
+    subset="validation",
+    class_mode="categorical"
+)
+
+# Step 2: Build transfer learning model
+base_model = EfficientNetB0(weights="imagenet", include_top=False, input_shape=(img_size, img_size, 3))
+base_model.trainable = False  # freeze base model
+
+model = Sequential([
+    base_model,
+    GlobalAveragePooling2D(),
+    Dropout(0.3),
+    Dense(101, activation="softmax")  # 101 food categories
+])
+
+model.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+
+# Step 3: Train model
+history = model.fit(train_data, validation_data=val_data, epochs=5)
+
+# Step 4: Food → Calorie mapping (example values, can be extended)
+calorie_dict = {
+    "pizza": 266,  # per slice
+    "apple_pie": 320,
+    "hamburger": 295,
+    "ice_cream": 207,
+    "sushi": 200,
+    # ... add all 101 classes with approximate calories
+}
+
+# Step 5: Prediction + Calorie estimation
+def predict_food(img_path):
+    img = tf.keras.utils.load_img(img_path, target_size=(img_size, img_size))
+    img_array = tf.keras.utils.img_to_array(img)/255.0
+    img_array = np.expand_dims(img_array, axis=0)
+
+    pred = model.predict(img_array)
+    class_idx = np.argmax(pred)
+    class_name = list(train_data.class_indices.keys())[class_idx]
+
+    calories = calorie_dict.get(class_name, "Unknown")
+    return class_name, calories
+
+# Example usage:
+food, cal = predict_food("example_food.jpg")
+print(f"Predicted Food: {food}, Estimated Calories: {cal}")
